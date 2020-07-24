@@ -35,6 +35,12 @@
 #ifndef ESP_BlueMuse_h
 #define ESP_BlueMuse_h
 
+#define MUSE_SENSOR_TP9 3
+#define MUSE_SENSOR_AF7 4
+#define MUSE_SENSOR_AF8 5
+#define MUSE_SENSOR_TP10 6
+#define MUSE_SENSOR_RIGHTAUX 7
+
 #ifdef ESP32
 //
 //#elif defined(ESP8266)
@@ -47,37 +53,98 @@
 #include "BLEDevice.h"
 #include <vector>
 
+struct eegData {
+    long timestamp;
+    int TP9[12];
+    int TP10[12];
+    int AF7[12];
+    int AF8[12];
+    int RIGHTAUX[12];
+};
+
+typedef void (*callbackFunction)(void);
+typedef void (*connectionStateChangeCallbackFunction)(BLEClient *pclient);
+typedef void (*eegDataCallbackFunction)(eegData);
+typedef void (*gyroDataCallbackFunction)(float, float, float);
+typedef void (*accelerometerDataCallbackFunction)(float, float, float);
+
 class ESP_BlueMuse : public BLEClientCallbacks, public BLEAdvertisedDeviceCallbacks
 {
 public:
     ESP_BlueMuse();
 
-    std::map<std::string, BLEAdvertisedDevice*> discoverHeadbands(void);
+    std::map<std::string, BLEAdvertisedDevice *> discoverHeadbands(void);
+
     void onConnect(BLEClient *pclient);
     void onDisconnect(BLEClient *pclient);
-    void onResult(BLEAdvertisedDevice advertisedDevice);
-    bool connectToMuseHeadband(std::string headbandName);
 
-    static void notifyCallbackCmd(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
-    static void notifyCallback(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
+    void onResult(BLEAdvertisedDevice advertisedDevice);
+    bool connectToMuseHeadband(std::string headbandName, boolean autoReconnect = true);
+    bool connectToMuseHeadbandByUUID(std::string uuidString, boolean autoReconnect = true);
+
+    void registerOnConnectHandler(connectionStateChangeCallbackFunction callbackFunction);
+    void registerOnDisconnectHandler(connectionStateChangeCallbackFunction callbackFunction);
+    void registerEEGHandler(eegDataCallbackFunction callbackFunction);
+    void registerGyroHandler(gyroDataCallbackFunction callbackFunction);
+    void registerAccelerometerHandler(accelerometerDataCallbackFunction callbackFunction);
+
+    float getBatteryLevel(void);
+    float getFirmwareVersion(void);
+
+    void startEEGData(void);
+    void stopEEGData(void);
+
+    void startGyroData(void);
+    void stopGyroData(void);
+
+    void startAccelerometerData(void);
+    void stopAccelerometerData(void);
+
+    void sendKeepAlive(void);
+    void startStreaming(void);
+    void stopStreaming(void);
 
     static constexpr double MUSE_ACCELEROMETER_SCALE_FACTOR = 0.0000610352;
     static constexpr double MUSE_GYRO_SCALE_FACTOR = 0.0074768;
 
+    static const char *MUSE_GATT_ATTR_GYRO;
+    static const char *MUSE_GATT_ATTR_ACCELEROMETER;
+    // EEG Electrode data
+    static const char *MUSE_GATT_ATTR_TP9;
+    static const char *MUSE_GATT_ATTR_AF7;
+    static const char *MUSE_GATT_ATTR_AF8;
+    static const char *MUSE_GATT_ATTR_TP10;
+    static const char *MUSE_GATT_ATTR_RIGHTAUX;
+
 private:
+    static void notifyCallbackCmd(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
+    static void genericDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
+    static void eegDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
+
+    bool sendCommandToHeadset(const char *characteristicUUID, String cmd);
+    bool subscribe(const char *characteristicUUID);
+    bool unsubscribe(const char *characteristicUUID);
+
+    void requestDeviceInfo(void);
+    void requestControlStatus(void);
+
+    BLERemoteService *pRemoteService;
     String _headbandName;
     String currentMessage = String();
-    std::map<std::string, BLEAdvertisedDevice*> discoveredMuseDevices;
+    std::map<std::string, BLEAdvertisedDevice *> discoveredMuseDevices;
+    bool _autoReconnect = false;
+    BLEAdvertisedDevice *advertisedDeviceToConnectTo;
+
+    eegData eegDataPackage;
+
+    long _connectionTimestamp;
+
+    static ESP_BlueMuse *anchor;
 
     const char *MUSE_GATT_ATTR_STREAM_TOGGLE = "273e0001-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_TP9 = "273e0003-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_AF7 = "273e0004-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_AF8 = "273e0005-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_TP10 = "273e0006-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_RIGHTAUX = "273e0007-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_GYRO = "273e0009-4c4d-454d-96be-f03bac821358";
-    const char *MUSE_GATT_ATTR_ACCELEROMETER = "273e000a-4c4d-454d-96be-f03bac821358";
+
     const char *MUSE_GATT_ATTR_TELEMETRY = "273e000b-4c4d-454d-96be-f03bac821358";
+
     const char *MUSE_GATT_ATTR_PPG1 = "273e000f-4c4d-454d-96be-f03bac821358";
     const char *MUSE_GATT_ATTR_PPG2 = "273e0010-4c4d-454d-96be-f03bac821358";
     const char *MUSE_GATT_ATTR_PPG3 = "273e0011-4c4d-454d-96be-f03bac821358";
@@ -91,11 +158,18 @@ private:
     const BLEUUID charUUIDControl = BLEUUID(MUSE_GATT_ATTR_STREAM_TOGGLE);
 
     bool doConnect = false;
-    bool connected = false;
+    bool _isConnected = false;
     bool doScan = false;
     BLERemoteCharacteristic *pRemoteCharacteristic;
     BLERemoteCharacteristic *pRemoteCharacteristicControlChannel;
     BLEAdvertisedDevice *myDevice;
+
+    //callback function handles
+    connectionStateChangeCallbackFunction _callbackConnect;
+    connectionStateChangeCallbackFunction _callbackDisconnect;
+    eegDataCallbackFunction _callbackEEGData;
+    gyroDataCallbackFunction _callbackGyroData;
+    accelerometerDataCallbackFunction _callbackAccell;
 };
 
 // ------------------------------------ End ---------------------------------
