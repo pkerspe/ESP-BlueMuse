@@ -13,7 +13,7 @@ void printChipInfo()
   Serial.println(REG_READ(EFUSE_BLK0_RDATA3_REG), BIN);
 
   Serial.printf("Chip Revision (official version): %i\n", getChipRevision());
- 
+
   Serial.print("Chip Revision from shift Opration ");
   Serial.println(REG_READ(EFUSE_BLK0_RDATA3_REG) >> 15, BIN);
 }
@@ -31,9 +31,17 @@ void accelerometerDataHandler(float x, float y, float z)
   Serial.printf("Accelerometer: %f/%f/%f\n", x, y, z);
 }
 
+long packageCounter = 0;
+
 void eegDataHandler(eegData dataPackage)
 {
- Serial.printf("%ld EEGData: AF7: %i / AF8: %i, %i, %i ... / TP9: %i / TP10: %i / Rightaux: %i\n", dataPackage.timestamp, dataPackage.AF7[0], dataPackage.AF7[1], dataPackage.AF7[2], dataPackage.AF8[0], dataPackage.TP9[0], dataPackage.TP10[0], dataPackage.RIGHTAUX[0]);
+  //Serial.printf("%ld EEGData: AF7: %i / AF8: %i, %i, %i ... / TP9: %i / TP10: %i / Rightaux: %i\n", dataPackage.timestamp, dataPackage.AF7[0], dataPackage.AF7[1], dataPackage.AF7[2], dataPackage.AF8[0], dataPackage.TP9[0], dataPackage.TP10[0], dataPackage.RIGHTAUX[0]);
+  packageCounter++;
+  if (packageCounter % 20 == 0)
+  {
+    Serial.printf("Got %ld packages so far\n", packageCounter);
+    //Serial.printf("Last package AUX data was: %i, %i, %i\n", dataPackage.RIGHTAUX[0],dataPackage.RIGHTAUX[1], dataPackage.RIGHTAUX[2]);
+  }
 }
 
 void setup()
@@ -48,10 +56,16 @@ void setup()
   blueMuse->registerGyroHandler(gyroDataHandler);
   blueMuse->registerAccelerometerHandler(accelerometerDataHandler);
   blueMuse->registerEEGHandler(eegDataHandler);
+  blueMuse->setPresetMode(ESP_BlueMuse::MUSE_MODE_NO_AUX_WITH_ACCELEROMETER);
 
   if (blueMuse->connectToMuseHeadbandByUUID("00:55:da:b0:e9:95"))
   {
     Serial.println("Connected!");
+  
+    //blueMuse->requestDeviceInfo();
+    //delay(500);
+    //blueMuse->requestControlStatus();
+    //delay(500);
     //blueMuse->startGyroData();
     blueMuse->startEEGData();
   }
@@ -79,12 +93,11 @@ void setup()
 
 void loop()
 {
+  
   blueMuse->sendKeepAlive();
-  Serial.println("*********** K ************");
-  delay(1000);
-  blueMuse->startStreaming();
-  Serial.println("*********** STREAM ************");
-  delay(1000);
+  delay(5000);
+  blueMuse->requestControlStatus();
+  
   /*
   // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are

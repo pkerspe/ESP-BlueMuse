@@ -52,8 +52,40 @@ ESP_BlueMuse::ESP_BlueMuse()
     {
         Serial.println("ESP_BlueMuse must be used as a singleton, do not create more than one instance or it will fail!");
     }
+    BLEDevice::setCustomGattcHandler(gattcEventHandler);
     BLEDevice::init("MuseClient");
     ESP_BlueMuse::anchor = this;
+}
+
+bool ESP_BlueMuse::setPresetMode(const byte preset)
+{
+    if (preset == MUSE_MODE_ALL_CHANNELS_WITH_ACCELEROMETER || preset == MUSE_MODE_NO_AUX_WITH_ACCELEROMETER || preset == MUSE_MODE_NO_AUX_NO_ACCELEROMETER)
+    {
+        Serial.printf("Setting preset mode to %i\n", preset);
+        String cmd;
+        this->_musePresetMode = preset;
+        if (this->_isConnected)
+        {
+            switch (preset)
+            {
+            case ESP_BlueMuse::MUSE_MODE_ALL_CHANNELS_WITH_ACCELEROMETER:
+                cmd = "\x04\x70\x32\x30\x0a";
+                break;
+
+            case ESP_BlueMuse::MUSE_MODE_NO_AUX_NO_ACCELEROMETER:
+                cmd = "\x04\x70\x32\x32\x0a";
+                break;
+
+            case ESP_BlueMuse::MUSE_MODE_NO_AUX_WITH_ACCELEROMETER:
+            default:
+                cmd = "\x04\x70\x32\x31\x0a";
+                break;
+            }
+            this->sendCommandToHeadset(MUSE_GATT_ATTR_STREAM_TOGGLE, cmd);
+        }
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -85,6 +117,15 @@ std::map<std::string, BLEAdvertisedDevice *> ESP_BlueMuse::discoverHeadbands(voi
     return this->discoveredMuseDevices;
 }
 
+void ESP_BlueMuse::gattcEventHandler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
+{
+    //ESP_LOGW(LOG_TAG, "custom gattc event handler, event: %d", (uint8_t)event);
+    if (event == ESP_GATTC_DISCONNECT_EVT)
+    {
+        Serial.printf("Disconnect reason: %i\n", (int)param->disconnect.reason);
+    }
+}
+
 /**
  * called when connection to headband has been established
  */
@@ -96,7 +137,7 @@ void ESP_BlueMuse::onConnect(BLEClient *pclient)
     if (this->_callbackConnect != NULL)
     {
         Serial.println("callback defined");
-        //        this->_callbackConnect(pclient);
+        //        this->_callbackConnect(pclient); TODO fix this part
     }
     else
     {
@@ -255,7 +296,7 @@ void ESP_BlueMuse::genericDataCallbackHandler(BLERemoteCharacteristic *pBLERemot
     }
 }
 
-void ESP_BlueMuse::notifyCallbackCmd(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+void ESP_BlueMuse::controlDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
     char *data = (char *)pData;
     int dataLength = data[0];
@@ -406,6 +447,11 @@ void ESP_BlueMuse::stopAccelerometerData(void)
 
 /**
  * send a command to the headset for the given characteristic UUID
+ * Command structure:
+ * <length cmd + nl caharacter><cmd><\x0a>
+ * All cahracters hex encoded, e.g.:
+ * \x04\x70\x32\x31\x0a
+ * 
  */
 bool ESP_BlueMuse::sendCommandToHeadset(const char *characteristicUUID, String cmd)
 {
@@ -414,6 +460,7 @@ bool ESP_BlueMuse::sendCommandToHeadset(const char *characteristicUUID, String c
         pRemoteCharacteristicControlChannel = this->pRemoteService->getCharacteristic(characteristicUUID);
         if (pRemoteCharacteristicControlChannel != nullptr)
         {
+            Serial.printf("Sending command: %s to UUID %s\n", (unsigned char *)cmd.c_str(), characteristicUUID);
             pRemoteCharacteristicControlChannel->writeValue((unsigned char *)cmd.c_str(), cmd.length(), false);
             return true;
         }
@@ -435,7 +482,11 @@ bool ESP_BlueMuse::subscribe(const char *characteristicUUID)
             {
                 pRemoteCharacteristic->registerForNotify(eegDataCallbackHandler);
             }
-            else
+            else if (strcmp(characteristicUUID, MUSE_GATT_ATTR_STREAM_TOGGLE) == 0)
+            {
+                pRemoteCharacteristic->registerForNotify(controlDataCallbackHandler);
+            }
+            else if (strcmp(characteristicUUID, MUSE_GATT_ATTR_STREAM_TOGGLE) == 0)
             {
                 pRemoteCharacteristic->registerForNotify(genericDataCallbackHandler);
             }
@@ -450,7 +501,7 @@ bool ESP_BlueMuse::subscribe(const char *characteristicUUID)
  */
 bool ESP_BlueMuse::unsubscribe(const char *characteristicUUID)
 {
-    pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
+    pRemoteCharacteristic = pRemoteService->getCharacteristic(characteristicUUID);
     if (pRemoteCharacteristic != nullptr && pRemoteCharacteristic->canNotify())
     {
         pRemoteCharacteristic->registerForNotify(NULL); //unregister by providing NULL as callback
@@ -467,6 +518,9 @@ void ESP_BlueMuse::sendKeepAlive(void)
 
 void ESP_BlueMuse::startStreaming(void)
 {
+    //set preset mode (Again) just to be sure, since it seems to be reset after sending the stopStreaming command)
+    this->setPresetMode(this->_musePresetMode);
+
     String cmd = "\x02\x64\x0a";
     this->sendCommandToHeadset(MUSE_GATT_ATTR_STREAM_TOGGLE, cmd);
 }
@@ -512,6 +566,7 @@ bool ESP_BlueMuse::connectToMuseHeadbandByUUID(std::string uuidString, boolean a
         }
         Serial.printf("Found reguired BLE service:  %s\n", serviceUUID.toString().c_str());
         _isConnected = true;
+        this->subscribe(MUSE_GATT_ATTR_STREAM_TOGGLE);
         return true;
     }
     return false;

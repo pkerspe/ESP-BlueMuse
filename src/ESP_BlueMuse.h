@@ -53,7 +53,8 @@
 #include "BLEDevice.h"
 #include <vector>
 
-struct eegData {
+struct eegData
+{
     long timestamp;
     int TP9[12];
     int TP10[12];
@@ -104,6 +105,8 @@ public:
     void startStreaming(void);
     void stopStreaming(void);
 
+    bool setPresetMode(const byte mode);
+
     static constexpr double MUSE_ACCELEROMETER_SCALE_FACTOR = 0.0000610352;
     static constexpr double MUSE_GYRO_SCALE_FACTOR = 0.0074768;
 
@@ -116,17 +119,33 @@ public:
     static const char *MUSE_GATT_ATTR_TP10;
     static const char *MUSE_GATT_ATTR_RIGHTAUX;
 
+    /*
+    https://web.archive.org/web/20190313071559/http://developer.choosemuse.com/hardware-firmware/headband-configuration-presets
+
+    Available Presets for Muse 2016 headbands
+    Preset ID	EEG Channels	        EEG Data	    Accelerometer Data
+    20	TP9, AF7, AF8, TP10, Right AUX	12 bits @ 256Hz	52Hz	
+    21	TP9, AF7, AF8, TP10	            12 bits @ 256Hz	52Hz	
+    22	TP9, AF7, AF8, TP10	            12 bits @ 256Hz	None	
+    23	TP9, AF7, AF8, TP10	            12 bits @ 256Hz	None
+    */
+    static const byte MUSE_MODE_ALL_CHANNELS_WITH_ACCELEROMETER = 20;
+    static const byte MUSE_MODE_NO_AUX_WITH_ACCELEROMETER = 21;
+    static const byte MUSE_MODE_NO_AUX_NO_ACCELEROMETER = 22;
+
+    void requestDeviceInfo(void);
+    void requestControlStatus(void);
+
 private:
-    static void notifyCallbackCmd(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
+    static void gattcEventHandler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t* param);
+
+    static void controlDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
     static void genericDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
     static void eegDataCallbackHandler(BLERemoteCharacteristic *pBLERemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify);
 
     bool sendCommandToHeadset(const char *characteristicUUID, String cmd);
     bool subscribe(const char *characteristicUUID);
     bool unsubscribe(const char *characteristicUUID);
-
-    void requestDeviceInfo(void);
-    void requestControlStatus(void);
 
     BLERemoteService *pRemoteService;
     String _headbandName;
@@ -138,6 +157,7 @@ private:
     eegData eegDataPackage;
 
     long _connectionTimestamp;
+    byte _musePresetMode = MUSE_MODE_ALL_CHANNELS_WITH_ACCELEROMETER;
 
     static ESP_BlueMuse *anchor;
 
@@ -154,7 +174,6 @@ private:
     // The remote service we wish to connect to.
     BLEUUID serviceUUID = BLEUUID("0000fe8d-0000-1000-8000-00805f9b34fb");
     // The characteristic of the remote service we are interested in.
-    const BLEUUID charUUID = BLEUUID(MUSE_GATT_ATTR_ACCELEROMETER);
     const BLEUUID charUUIDControl = BLEUUID(MUSE_GATT_ATTR_STREAM_TOGGLE);
 
     bool doConnect = false;
